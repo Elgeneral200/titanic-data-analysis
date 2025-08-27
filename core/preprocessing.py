@@ -23,21 +23,32 @@ def process_missing_values(
     if strategy == "drop":
         return df_copy.dropna(subset=target_cols)
 
-    if strategy in ["mean", "median"]:
-        for col in target_cols:
+    for col in target_cols:
+        if strategy in ["mean", "median"]:
             if pd.api.types.is_numeric_dtype(df_copy[col]):
-                func = df_copy[col].mean if strategy == "mean" else df_copy[col].median
-                df_copy[col] = df_copy[col].fillna(func())
-    elif strategy == "mode":
-        for col in target_cols:
-            mode = df_copy[col].mode()
-            if not mode.empty:
-                df_copy[col] = df_copy[col].fillna(mode[0])
-    elif strategy == "constant":
-        if fill_value is None:
-            raise ValueError("fill_value is required for constant strategy")
-        df_copy[target_cols] = df_copy[target_cols].fillna(fill_value)
-    else:
-        raise ValueError(f"Unknown strategy: {strategy}")
+                value = df_copy[col].mean() if strategy == "mean" else df_copy[col].median()
+                df_copy[col] = df_copy[col].fillna(value)
+        elif strategy == "mode":
+            mode_series = df_copy[col].mode()
+            if not mode_series.empty:
+                df_copy[col] = df_copy[col].fillna(mode_series[0])
+        elif strategy == "constant":
+            if fill_value is None:
+                raise ValueError("Fill value required for 'constant'")
+            df_copy[col] = df_copy[col].fillna(fill_value)
+        else:
+            raise ValueError(f"Invalid strategy: {strategy}")
+    return df_copy
+
+
+def convert_data_type(df: DataFrame, column: str, dtype: str) -> DataFrame:
+    if column not in df.columns:
+        raise ValueError(f"Column '{column}' not found.")
+
+    df_copy = df.copy()
+    try:
+        df_copy[column] = df_copy[column].astype(dtype)
+    except Exception as e:
+        raise ValueError(f"Failed to convert column '{column}' to {dtype}") from e
 
     return df_copy

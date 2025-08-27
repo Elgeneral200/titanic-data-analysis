@@ -1,35 +1,68 @@
-# 🧪 Simple Data Analysis Toolkit
+# 🚢 Titanic Survival Prediction App
 
-A beginner-friendly, modular Python toolkit for loading, cleaning, and analyzing tabular data using **pandas** and **matplotlib**.
-
-Built with reusability, clarity, and simplicity in mind.
-
----
-
-## 🚀 Features
-
-- 📂 Read/Write from CSV, Excel, JSON, SQLite
-- 🔍 Check data types and missing value stats
-- 🧼 Clean missing data (drop, fill: mean/median/mode/constant/custom map)
-- 📊 Simple visualizations (missing heatmap, correlation matrix)
-- 🖥️ Basic CLI demo
+This is a **Machine Learning project** that predicts the survival of passengers on the Titanic.  
+The app is built with **Python** and **Streamlit**, and allows users to input passenger details and get a prediction instantly.
 
 ---
 
-## 📁 File Structure
-Data Analysis Task_1/
-├── file_handler.py # I/O: CSV, JSON, Excel, SQLite
-├── preprocessing.py # Clean & transform missing or typed data
-├── visualization.py # Minimal plotting (matplotlib)
-├── main.py # Simple CLI interface
+## ✨ Features
+
+- Interactive **Streamlit web app**.  
+- Takes passenger details as input (age, gender, class, etc.).  
+- Uses a trained **machine learning model** to predict survival.  
+- Simple and clean UI for quick testing.  
+
+---
+
+## 📁 Folder Structure
+Titanic Analysis/
+├── app.py
 ├── requirements.txt
-└── README.md
+├── README.md
+├── core/
+│ ├── file_handler.py
+│ ├── preprocessing.py
+│ ├── visualization.py
+├── outputs/
 
-## 🚀 How to Run the Project
 
-This project provides a simple pipeline for handling missing values in a dataset.  
-You can run the script using the following commands:
 
-### 1. Basic Run
+---
+
+## 📦 Requirements
+
+Make sure you have **Python 3.8+** installed.  
+Install dependencies using:
+
 ```bash
-python main.py --input train.csv
+pip install -r requirements.txt
+
+---
+🚀 How to Run Locally
+
+1. Clone the repository:
+
+git clone https://github.com/your-username/titanic-analysis.git
+cd titanic-analysis
+
+
+2. Create a virtual environment (recommended):
+
+python -m venv venv
+source venv/bin/activate   # On Linux/Mac
+venv\Scripts\activate      # On Windows
+
+
+3. Install dependencies:
+
+pip install -r requirements.txt
+
+
+4. Run the Streamlit app:
+
+streamlit run app.py
+
+
+5. Open your browser and go to:
+
+http://localhost:8501
