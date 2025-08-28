@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 import sqlite3
 from pandas import DataFrame
@@ -6,11 +5,6 @@ from pandas import DataFrame
 
 def read_csv(path) -> DataFrame:
     return pd.read_csv(path)
-
-
-def write_csv(df: DataFrame, path: str, index: bool = False) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    df.to_csv(path, index=index)
 
 
 def read_excel(path) -> DataFrame:

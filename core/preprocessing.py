@@ -3,10 +3,6 @@ from typing import Union, Literal, Dict, Any
 from pandas import DataFrame
 
 
-def check_data_types(df: DataFrame) -> pd.Series:
-    return df.dtypes
-
-
 def check_missing_values(df: DataFrame, percent: bool = False) -> pd.Series:
     return df.isna().mean() * 100 if percent else df.isna().sum()
 
@@ -42,13 +38,9 @@ def process_missing_values(
 
 
 def convert_data_type(df: DataFrame, column: str, dtype: str) -> DataFrame:
-    if column not in df.columns:
-        raise ValueError(f"Column '{column}' not found.")
-
     df_copy = df.copy()
     try:
         df_copy[column] = df_copy[column].astype(dtype)
     except Exception as e:
-        raise ValueError(f"Failed to convert column '{column}' to {dtype}") from e
-
+        raise ValueError(f"Conversion error: {e}")
     return df_copy
