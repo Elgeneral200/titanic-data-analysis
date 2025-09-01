@@ -3,19 +3,22 @@
 Professional Data Cleaning & Analysis Tool
 
 A comprehensive Streamlit application for data cleaning, analysis, and visualization
-with multilingual support (English/Arabic) and professional UI/UX design.
+with multilingual support (English/Arabic), pipeline history (undo/redo, save/load, reapply),
+Parquet export, Data Quality Rules + HTML report, and professional dark UI/UX design.
 
 Author: Data Cleaning Tool Team
-Version: 2.3.1
+Version: 2.5.2
 """
 
 from typing import Any, Dict, Optional, Tuple
-
+from datetime import datetime
 import io
+import json
+
 import pandas as pd
 import streamlit as st
 
-from core import file_handler, preprocessing, visualization
+from core import file_handler, preprocessing, visualization, pipeline as pipe, quality as qc
 
 # Page configuration
 st.set_page_config(
@@ -25,50 +28,46 @@ st.set_page_config(
     menu_items={
         "Get Help": "https://docs.streamlit.io",
         "Report a bug": "https://github.com/streamlit/streamlit/issues",
-        "About": "Professional Data Cleaning Tool v2.3.1",
+        "About": "Professional Data Cleaning Tool v2.5.2",
     },
 )
 
-# Global dark theme styling (no pure whites)
+# Non-breaking space constant
+NBSP = "\u00A0"
+
+# Global dark theme styling
 st.markdown(
     """
 <style>
     :root {
-        --primary-color: #3b82f6;     /* Bright blue for accents */
-        --accent-color: #22d3ee;      /* Cyan accent */
-        --success-color: #10b981;     /* Emerald */
-        --warning-color: #f59e0b;     /* Amber */
-        --danger-color: #ef4444;      /* Red */
-        --info-color: #38bdf8;        /* Sky */
-        --bg-primary: #0b1220;        /* App background */
-        --bg-panel: #0f172a;          /* Panels / shells */
-        --bg-surface: #111827;        /* Cards / containers */
-        --bg-elev: #1f2937;           /* Elevated surfaces */
-        --border-color: #334155;      /* Borders */
-        --text-color: #e5e7eb;        /* Primary text */
-        --text-muted: #94a3b8;        /* Muted text */
+        --primary-color: #3b82f6;
+        --accent-color: #22d3ee;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --danger-color: #ef4444;
+        --info-color: #38bdf8;
+        --bg-primary: #0b1220;
+        --bg-panel: #0f172a;
+        --bg-surface: #111827;
+        --bg-elev: #1f2937;
+        --border-color: #334155;
+        --text-color: #e5e7eb;
+        --text-muted: #94a3b8;
     }
 
-    /* App background */
     html, body, .stApp, [data-testid="stAppViewContainer"] {
         background-color: var(--bg-primary);
         color: var(--text-color);
     }
 
-    /* Main content wrapper */
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 2rem;
-    }
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
 
-    /* Sidebar dark */
     [data-testid="stSidebar"] {
         background-color: var(--bg-panel);
         color: var(--text-color);
         border-right: 1px solid var(--border-color);
     }
 
-    /* Metrics styled as dark cards */
     [data-testid="metric-container"] {
         background-color: var(--bg-surface);
         border: 1px solid var(--border-color);
@@ -79,7 +78,6 @@ st.markdown(
         color: var(--text-color);
     }
 
-    /* Dark tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background: var(--bg-panel);
@@ -96,6 +94,7 @@ st.markdown(
         color: var(--text-color) !important;
         font-weight: 600;
         transition: all 0.15s ease;
+        white-space: nowrap;
     }
 
     .stTabs [data-baseweb="tab"]:hover {
@@ -110,7 +109,6 @@ st.markdown(
         box-shadow: 0 2px 6px rgba(59,130,246,0.35);
     }
 
-    /* Dark containers */
     .main-container {
         padding: 16px;
         background-color: var(--bg-surface);
@@ -121,13 +119,8 @@ st.markdown(
         color: var(--text-color);
     }
 
-    /* RTL support for Arabic */
-    .rtl {
-        direction: rtl;
-        text-align: right;
-    }
+    .rtl { direction: rtl; text-align: right; }
 
-    /* Section header */
     .section-header {
         color: var(--text-color);
         border-bottom: 2px solid var(--primary-color);
@@ -135,7 +128,6 @@ st.markdown(
         margin-bottom: 16px;
     }
 
-    /* Buttons */
     .stButton > button, .stDownloadButton > button {
         border-radius: 8px;
         border: 1px solid var(--border-color);
@@ -144,6 +136,7 @@ st.markdown(
         color: var(--text-color);
         background: linear-gradient(180deg, var(--bg-elev), var(--bg-surface));
         transition: all 0.15s;
+        white-space: nowrap;
     }
     .stButton > button:hover, .stDownloadButton > button:hover {
         transform: translateY(-2px);
@@ -151,18 +144,14 @@ st.markdown(
         background: linear-gradient(180deg, var(--bg-elev), var(--bg-elev));
     }
 
-    /* Alerts on dark */
     .stAlert {
         background-color: var(--bg-surface);
         color: var(--text-color);
         border-left: 4px solid var(--info-color);
-        border-top: 1px solid var(--border-color);
-        border-right: 1px solid var(--border-color);
-        border-bottom: 1px solid var(--border-color);
+        border: 1px solid var(--border-color);
         border-radius: 8px;
     }
 
-    /* Inputs / selects */
     [data-baseweb="input"] input, [data-baseweb="textarea"] textarea {
         color: var(--text-color) !important;
         background-color: var(--bg-surface) !important;
@@ -179,39 +168,31 @@ st.markdown(
         border-radius: 8px !important;
     }
 
-    /* Expander dark */
     [data-testid="stExpander"] details {
         background: var(--bg-surface);
         color: var(--text-color);
         border: 1px solid var(--border-color);
         border-radius: 8px;
     }
-    [data-testid="stExpander"] summary {
-        color: var(--text-color);
-    }
 
-    /* Tables and DataFrames dark */
     [data-testid="stTable"] table, [data-testid="stTable"] thead, [data-testid="stTable"] tbody, 
     [data-testid="stTable"] tr, [data-testid="stTable"] th, [data-testid="stTable"] td {
         background-color: var(--bg-surface) !important;
         color: var(--text-color) !important;
         border-color: var(--border-color) !important;
     }
-
     [data-testid="stDataFrame"] {
         background-color: var(--bg-surface) !important;
         border: 1px solid var(--border-color);
         border-radius: 8px;
     }
-    [data-testid="stDataFrame"] div {
-        color: var(--text-color) !important;
-    }
+    [data-testid="stDataFrame"] div { color: var(--text-color) !important; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# Language packs (shortened here for brevity; unchanged content from v2.3)
+# Language packs (includes quality rules labels)
 languages = {
     "English": {
         "title": "🧼 Data Cleaning & Analysis Tool",
@@ -288,6 +269,7 @@ languages = {
         "memory_usage": "Memory Usage",
         "download_csv": "⬇️ Download CSV File",
         "download_excel": "⬇️ Download Excel File",
+        "download_parquet": "⬇️ Download Parquet File",
         "download_config": "⬇️ Download Configuration",
         "column_types_summary": "Column Types Summary",
         "rows": "Rows",
@@ -310,6 +292,51 @@ languages = {
         "feature3_title": "🚀 Enterprise Features",
         "feature3_desc": "Multilingual support, large dataset handling, and export configurations",
         "get_started": "Get started by uploading a file in the sidebar! →",
+        # Pipeline UI
+        "pipeline_section": "🧵 History & Pipelines",
+        "undo": "Undo",
+        "redo": "Redo",
+        "clear_history": "Clear History",
+        "save_pipeline": "Save Pipeline",
+        "load_pipeline": "Load Pipeline",
+        "reapply_pipeline": "Reapply to Original Dataset",
+        "auto_reapply": "Auto-reapply pipeline on upload",
+        "no_steps": "No steps recorded yet.",
+        "pipeline_loaded": "Pipeline loaded and applied.",
+        "export_parquet": "Parquet",
+        # Quality rules UI
+        "quality_tab": "🧪 Data Quality",
+        "quality_builder": "Rule Builder",
+        "quality_run": "Run Checks",
+        "quality_kpis": "Quality KPIs",
+        "quality_pass_rate": "Pass Rate",
+        "quality_failed_rows": "Failed Rows",
+        "quality_issue_columns": "Columns with Issues",
+        "quality_download": "⬇️ Download Quality Report (HTML)",
+        "quality_rules": "Rules",
+        "quality_add_rule": "Add Rule",
+        "quality_reset_rules": "Reset Rules",
+        "quality_save_rules": "Save Rules",
+        "quality_load_rules": "Load Rules",
+        "quality_loaded": "Rules loaded.",
+        "rule_type": "Rule Type",
+        "rule_column": "Column",
+        "rule_columns": "Columns",
+        "rule_min": "Min",
+        "rule_max": "Max",
+        "rule_allowed": "Allowed Values (comma-separated)",
+        "rule_regex": "Regex Pattern",
+        "rule_dtype": "Expected dtype",
+        # Rule names
+        "r_not_null": "Not Null",
+        "r_unique": "Unique",
+        "r_unique_multi": "Unique (Across Columns)",
+        "r_min": "Min Value",
+        "r_max": "Max Value",
+        "r_between": "Between Range",
+        "r_allowed": "Allowed Set",
+        "r_regex": "Regex Match",
+        "r_dtype": "Dtype Is",
     },
     "العربية": {
         "title": "🧼 أداة تنظيف وتحليل البيانات",
@@ -386,6 +413,7 @@ languages = {
         "memory_usage": "استخدام الذاكرة",
         "download_csv": "⬇️ تحميل ملف CSV",
         "download_excel": "⬇️ تحميل ملف Excel",
+        "download_parquet": "⬇️ تحميل ملف Parquet",
         "download_config": "⬇️ تحميل التكوين",
         "column_types_summary": "ملخص أنواع الأعمدة",
         "rows": "الصفوف",
@@ -408,6 +436,51 @@ languages = {
         "feature3_title": "🚀 ميزات متقدمة",
         "feature3_desc": "دعم متعدد اللغات، معالجة مجموعات البيانات الكبيرة، وتكوينات التصدير",
         "get_started": "ابدأ برفع ملف في الشريط الجانبي! ←",
+        # Pipeline UI
+        "pipeline_section": "🧵 السجل وخطوات المعالجة",
+        "undo": "تراجع",
+        "redo": "إعادة",
+        "clear_history": "مسح السجل",
+        "save_pipeline": "حفظ خطوات المعالجة",
+        "load_pipeline": "تحميل خطوات المعالجة",
+        "reapply_pipeline": "تطبيق الخطوات على البيانات الأصلية",
+        "auto_reapply": "تطبيق الخطوات تلقائياً عند الرفع",
+        "no_steps": "لا توجد خطوات مسجلة بعد.",
+        "pipeline_loaded": "تم تحميل وتطبيق الخطوات.",
+        "export_parquet": "Parquet",
+        # Quality rules UI
+        "quality_tab": "🧪 جودة البيانات",
+        "quality_builder": "منشئ القواعد",
+        "quality_run": "تشغيل الفحص",
+        "quality_kpis": "مؤشرات الجودة",
+        "quality_pass_rate": "معدل النجاح",
+        "quality_failed_rows": "عدد الصفوف الفاشلة",
+        "quality_issue_columns": "أعمدة بها مشاكل",
+        "quality_download": "⬇️ تحميل تقرير الجودة (HTML)",
+        "quality_rules": "القواعد",
+        "quality_add_rule": "إضافة قاعدة",
+        "quality_reset_rules": "إعادة ضبط القواعد",
+        "quality_save_rules": "حفظ القواعد",
+        "quality_load_rules": "تحميل القواعد",
+        "quality_loaded": "تم تحميل القواعد.",
+        "rule_type": "نوع القاعدة",
+        "rule_column": "العمود",
+        "rule_columns": "الأعمدة",
+        "rule_min": "الحد الأدنى",
+        "rule_max": "الحد الأقصى",
+        "rule_allowed": "القيم المسموحة (مفصولة بفواصل)",
+        "rule_regex": "نمط Regex",
+        "rule_dtype": "نوع البيانات المتوقع",
+        # Rule names
+        "r_not_null": "غير فارغ",
+        "r_unique": "فريد",
+        "r_unique_multi": "فريد عبر أعمدة",
+        "r_min": "قيمة دنيا",
+        "r_max": "قيمة قصوى",
+        "r_between": "بين قيمتين",
+        "r_allowed": "مجموعة مسموحة",
+        "r_regex": "مطابقة Regex",
+        "r_dtype": "نوع البيانات",
     },
 }
 
@@ -415,41 +488,62 @@ languages = {
 def initialize_session_state() -> None:
     """
     Initialize Streamlit session state variables.
-
-    Sets up default values for column types, change tracking, and other
-    application state variables.
     """
     if "column_types" not in st.session_state:
         st.session_state.column_types = {}
     if "type_changes_applied" not in st.session_state:
         st.session_state.type_changes_applied = False
+    if "auto_reapply_pipeline" not in st.session_state:
+        st.session_state.auto_reapply_pipeline = False
+    if "quality_rules" not in st.session_state:
+        st.session_state.quality_rules = []
+    if "pipeline" not in st.session_state:
+        st.session_state.pipeline = pipe.Pipeline(registry=build_operation_registry())
+
+
+def build_operation_registry() -> Dict[str, Any]:
+    """
+    Build the operation registry mapping pipeline step names to functions.
+    """
+
+    def op_process_missing(df: pd.DataFrame, strategy: str, columns: Optional[list] = None, fill_value: Any = None):
+        return preprocessing.process_missing_values(
+            df, strategy=strategy, columns=columns, fill_value=fill_value, column_types=None
+        )
+
+    def op_convert_dtype(df: pd.DataFrame, column: str, dtype: str):
+        return preprocessing.convert_data_type(df, column=column, dtype=dtype)
+
+    def op_drop_columns(df: pd.DataFrame, columns: list):
+        return df.drop(columns=[c for c in columns if c in df.columns], errors="ignore")
+
+    def op_quality_check(df: pd.DataFrame, **kwargs):
+        return df  # no-op
+
+    return {
+        "process_missing": op_process_missing,
+        "convert_dtype": op_convert_dtype,
+        "drop_columns": op_drop_columns,
+        "quality_check": op_quality_check,
+    }
 
 
 def setup_language_selection() -> Tuple[Dict[str, str], str]:
     """
     Set up language selection interface and return language configuration.
-
-    Returns:
-        Tuple[Dict[str, str], str]: Selected language dictionary and language key.
     """
     lang_options = {"🇺🇸 English": "English", "🇸🇦 العربية": "العربية"}
     selected_lang = st.sidebar.selectbox("🌐 Language / اللغة", list(lang_options.keys()))
     lang = lang_options[selected_lang]
     TXT = languages[lang]
-
-    # Apply RTL for Arabic
     if lang == "العربية":
         st.markdown('<div class="rtl">', unsafe_allow_html=True)
-
     return TXT, lang
 
 
 def render_header(TXT: Dict[str, str]) -> None:
     """
     Render the professional application header.
-
-    Args:
-        TXT: Language configuration dictionary.
     """
     st.markdown(
         f"""
@@ -465,12 +559,6 @@ def render_header(TXT: Dict[str, str]) -> None:
 def render_sidebar_upload(TXT: Dict[str, str]) -> Optional[Any]:
     """
     Render the file upload section in the sidebar.
-
-    Args:
-        TXT: Language configuration dictionary.
-
-    Returns:
-        Uploaded file object or None.
     """
     with st.sidebar:
         st.markdown(
@@ -483,29 +571,15 @@ def render_sidebar_upload(TXT: Dict[str, str]) -> Optional[Any]:
         """,
             unsafe_allow_html=True,
         )
-
-        uploaded_file = st.file_uploader(
-            TXT["upload"],
-            type=["csv", "xlsx", "json", "db"],
-            help=TXT["drag_drop"],
-        )
-
+        uploaded_file = st.file_uploader(TXT["upload"], type=["csv", "xlsx", "json", "db"], help=TXT["drag_drop"])
         return uploaded_file
 
 
 def process_uploaded_file(uploaded_file: Any, TXT: Dict[str, str]) -> bool:
     """
     Process the uploaded file and store in session state.
-
-    Args:
-        uploaded_file: Uploaded file object.
-        TXT: Language configuration dictionary.
-
-    Returns:
-        bool: True if processing successful, False otherwise.
     """
     ext = uploaded_file.name.split(".")[-1].lower()
-
     try:
         with st.spinner(TXT["loading"]):
             if ext == "csv":
@@ -525,56 +599,127 @@ def process_uploaded_file(uploaded_file: Any, TXT: Dict[str, str]) -> bool:
                 return False
 
             df.columns = df.columns.astype(str).str.strip().str.replace(" ", "_")
-
             st.session_state.df_original = df.copy()
-            st.session_state.df = df
+            if st.session_state.auto_reapply_pipeline and st.session_state.pipeline.has_steps:
+                st.session_state.df = st.session_state.pipeline.apply(st.session_state.df_original.copy())
+            else:
+                st.session_state.df = df
 
             if not st.session_state.column_types:
-                st.session_state.column_types = preprocessing.detect_column_types(df)
+                st.session_state.column_types = preprocessing.detect_column_types(st.session_state.df)
 
             st.sidebar.success(TXT["file_uploaded"])
             return True
-
     except Exception as e:
         st.error(f"❌ {TXT['error']}: {e}")
         return False
 
 
+def _recompute_from_pipeline() -> None:
+    """
+    Recompute the DataFrame by replaying the pipeline on the original dataset.
+    """
+    if "df_original" not in st.session_state:
+        return
+    st.session_state.df = st.session_state.pipeline.apply(st.session_state.df_original.copy())
+    st.session_state.column_types = preprocessing.detect_column_types(st.session_state.df)
+
+
+def render_pipeline_sidebar(TXT: Dict[str, str]) -> None:
+    """
+    Render the pipeline history and controls in the sidebar.
+    """
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown(f"### {TXT['pipeline_section']}")
+
+        if st.session_state.pipeline.has_steps:
+            for idx, step in enumerate(st.session_state.pipeline.steps, start=1):
+                label = step.label or f"{step.op} {step.params}"
+                st.caption(f"{idx}. {label}")
+        else:
+            st.info(TXT["no_steps"])
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button(TXT["undo"], use_container_width=True, key="btn_undo"):
+                if st.session_state.pipeline.undo():
+                    _recompute_from_pipeline()
+                    st.rerun()
+        with col2:
+            if st.button(TXT["redo"], use_container_width=True, key="btn_redo"):
+                if st.session_state.pipeline.redo():
+                    _recompute_from_pipeline()
+                    st.rerun()
+        with col3:
+            clear_text_one_line = TXT["clear_history"].replace(" ", NBSP)
+            clear_label = f"( {clear_text_one_line} )"
+            if st.button(clear_label, use_container_width=True, key="btn_clear_history"):
+                st.session_state.pipeline.clear()
+                _recompute_from_pipeline()
+                st.rerun()
+
+        st.toggle(TXT["auto_reapply"], value=st.session_state.auto_reapply_pipeline, key="auto_reapply_pipeline")
+
+        pipe_dict = st.session_state.pipeline.to_dict()
+        pipe_json = json.dumps(pipe_dict, ensure_ascii=False, indent=2)
+        st.download_button(
+            label=TXT["save_pipeline"],
+            data=pipe_json,
+            file_name=f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            use_container_width=True,
+            key="btn_save_pipeline",
+        )
+
+        uploaded = st.file_uploader(TXT["load_pipeline"], type=["json"], key="pipeline_loader")
+        if uploaded is not None:
+            try:
+                data = json.load(uploaded)
+                st.session_state.pipeline = pipe.Pipeline.from_dict(data, registry=build_operation_registry())
+                _recompute_from_pipeline()
+                st.success(TXT["pipeline_loaded"])
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to load pipeline: {e}")
+
+        if st.button(TXT["reapply_pipeline"], use_container_width=True, key="btn_reapply_pipeline"):
+            _recompute_from_pipeline()
+            st.rerun()
+
+
 def render_sidebar_controls(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """
-    Render quick action controls in the sidebar.
-
-    Args:
-        TXT: Language configuration dictionary.
-        df: Current DataFrame.
+    Render quick action controls in the sidebar (reset, drop columns) and pipeline tools.
     """
     with st.sidebar:
         st.markdown("---")
         st.markdown("### 🛠️ Quick Actions")
 
-        if st.button(f"🔄 {TXT['reset']}", use_container_width=True):
+        if st.button(f"🔄 {TXT['reset']}", use_container_width=True, key="btn_reset"):
             st.session_state.df = st.session_state.df_original.copy()
+            st.session_state.pipeline.clear()
             st.session_state.column_types = preprocessing.detect_column_types(st.session_state.df)
             st.success(TXT["file_reset"])
             st.rerun()
 
         with st.expander(TXT["drop_cols"]):
-            drop_cols = st.multiselect(TXT["select_columns_drop"] + ":", df.columns)
+            drop_cols = st.multiselect(TXT["select_columns_drop"] + ":", df.columns, key="drop_cols_select")
             if drop_cols and st.button(TXT["drop_selected"], key="drop_btn"):
-                st.session_state.df = st.session_state.df.drop(columns=drop_cols)
-                for col in drop_cols:
-                    st.session_state.column_types.pop(col, None)
-                st.success(f"Dropped: {', '.join(drop_cols)}")
+                label = f"Drop columns: {', '.join(drop_cols)}"
+                st.session_state.pipeline.add_step(op="drop_columns", params={"columns": drop_cols}, label=label)
+                _recompute_from_pipeline()
+                st.session_state.column_types = {
+                    c: t for c, t in st.session_state.column_types.items() if c in st.session_state.df.columns
+                }
                 st.rerun()
+
+    render_pipeline_sidebar(TXT)
 
 
 def render_column_types_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """
     Render the column types management tab.
-
-    Args:
-        TXT: Language configuration dictionary.
-        df: Current DataFrame.
     """
     st.markdown(
         f"""
@@ -585,22 +730,19 @@ def render_column_types_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """,
         unsafe_allow_html=True,
     )
-
     col1, col2 = st.columns([3, 1])
 
     with col1:
-        if st.button(TXT["auto_detect"], use_container_width=True):
+        if st.button(TXT["auto_detect"], use_container_width=True, key="btn_auto_detect"):
             st.session_state.column_types = preprocessing.detect_column_types(df)
             st.success("✅ Column types auto-detected!")
             st.rerun()
 
         st.markdown(f"#### {TXT['manual_override']}")
-
         with st.form("column_types_form"):
             type_changes: Dict[str, str] = {}
             num_cols = 3 if len(df.columns) > 9 else 2
             cols = st.columns(num_cols)
-
             for i, col in enumerate(df.columns):
                 with cols[i % num_cols]:
                     current_type = st.session_state.column_types.get(col, "cat")
@@ -612,7 +754,6 @@ def render_column_types_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
                         help=f"Current: {current_type}",
                     )
                     type_changes[col] = new_type
-
             if st.form_submit_button(TXT["apply_types"], use_container_width=True):
                 st.session_state.column_types.update(type_changes)
                 st.session_state.type_changes_applied = True
@@ -623,10 +764,8 @@ def render_column_types_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
         st.markdown(f"#### {TXT['current_distribution']}")
         num_cols = sum(1 for t in st.session_state.column_types.values() if t == "num")
         cat_cols = sum(1 for t in st.session_state.column_types.values() if t == "cat")
-
         st.metric(TXT["numerical"], num_cols, delta=f"{(num_cols / len(df.columns) * 100):.1f}%")
         st.metric(TXT["categorical"], cat_cols, delta=f"{(cat_cols / len(df.columns) * 100):.1f}%")
-
         st.markdown(f"#### {TXT['type_legend']}")
         st.info(TXT["num_desc"])
         st.info(TXT["cat_desc"])
@@ -635,30 +774,23 @@ def render_column_types_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
 def render_preview_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """
     Render the data preview tab.
-
-    Args:
-        TXT: Language configuration dictionary.
-        df: Current DataFrame.
     """
     visualization.create_data_overview_dashboard(df, st.session_state.column_types)
-
     st.markdown("---")
 
     col1, col2, col3 = st.columns([2, 1, 1])
-
     with col1:
         view_mode = st.radio(
             f"🔍 {TXT['view_mode']}:",
             [TXT["top_rows"], TXT["random_sample"], TXT["full_table"]],
             horizontal=True,
+            key="view_mode_radio",
         )
-
     with col2:
         if view_mode != TXT["full_table"]:
-            n_rows = st.slider(TXT["rows_to_show"], 5, min(1000, len(df)), 20)
-
+            n_rows = st.slider(TXT["rows_to_show"], 5, min(1000, len(df)), 20, key="rows_slider")
     with col3:
-        show_info = st.checkbox(TXT["show_column_info"], value=True)
+        show_info = st.checkbox(TXT["show_column_info"], value=True, key="show_info_chk")
 
     if view_mode == TXT["top_rows"]:
         st.dataframe(df.head(n_rows), use_container_width=True, height=400)
@@ -672,7 +804,6 @@ def render_preview_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     if show_info:
         with st.expander(f"📊 {TXT['quick_stats']}", expanded=True):
             col_l, col_r = st.columns(2)
-
             with col_l:
                 st.markdown(f"**{TXT['num_summary']}:**")
                 num_cols = [c for c, t in st.session_state.column_types.items() if t == "num" and c in df.columns]
@@ -680,7 +811,6 @@ def render_preview_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
                     st.dataframe(df[num_cols].describe(), use_container_width=True)
                 else:
                     st.info(TXT["no_numerical_selected"])
-
             with col_r:
                 st.markdown(f"**{TXT['missing_summary']}:**")
                 missing_summary = preprocessing.check_missing_values(df, percent=True)
@@ -694,10 +824,6 @@ def render_preview_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
 def render_cleaning_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """
     Render the data cleaning tab.
-
-    Args:
-        TXT: Language configuration dictionary.
-        df: Current DataFrame.
     """
     st.markdown(
         f"""
@@ -709,33 +835,28 @@ def render_cleaning_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     )
 
     st.markdown(f"#### {TXT['missing_data']}")
-    visualization.create_compact_missing_overview(df)
-
+    visualization.create_compact_missing_overview(df, key_prefix="cleaning_missing")
     st.markdown("---")
 
     col1, col2 = st.columns([2, 1])
-
     with col1:
         with st.expander(f"🔄 {TXT['convert_section_title']}", expanded=False):
             conv_col1, conv_col2, conv_col3 = st.columns(3)
-
             with conv_col1:
-                col_to_convert = st.selectbox(TXT["column_label"], df.columns)
-
+                col_to_convert = st.selectbox(TXT["column_label"], df.columns, key="convert_col_select")
             with conv_col2:
-                new_dtype = st.selectbox(
-                    TXT["convert_to"],
-                    ["str", "int", "float", "bool", "datetime"],
-                )
-
+                new_dtype = st.selectbox(TXT["convert_to"], ["str", "int", "float", "bool", "datetime"], key="convert_dtype_select")
             with conv_col3:
-                st.write("")
-                st.write("")
+                st.write(""); st.write("")
                 if st.button(TXT["convert_now"], key="convert_btn", use_container_width=True):
                     try:
-                        st.session_state.df = preprocessing.convert_data_type(
-                            st.session_state.df, col_to_convert, new_dtype
+                        label = f"Convert: {col_to_convert} → {new_dtype}"
+                        st.session_state.pipeline.add_step(
+                            op="convert_dtype",
+                            params={"column": col_to_convert, "dtype": new_dtype},
+                            label=label,
                         )
+                        _recompute_from_pipeline()
                         st.success(f"✅ {col_to_convert}{TXT['converted']}{new_dtype}")
                         st.rerun()
                     except Exception as e:
@@ -743,26 +864,14 @@ def render_cleaning_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
 
         st.markdown(f"#### {TXT['missing_treatment']}")
         clean_col1, clean_col2, clean_col3 = st.columns(3)
-
         with clean_col1:
-            strategy = st.selectbox(
-                TXT["cleaning_strategy"],
-                ["drop", "mean", "median", "mode", "constant"],
-                help="Choose the best strategy for your data type",
-            )
-
+            strategy = st.selectbox(TXT["cleaning_strategy"], ["drop", "mean", "median", "mode", "constant"], key="clean_strategy_select")
         with clean_col2:
-            target_cols = st.multiselect(
-                TXT["target_columns"],
-                df.columns,
-                default=[],
-                help="Leave empty to apply to all columns",
-            )
-
+            target_cols = st.multiselect(TXT["target_columns"], df.columns, default=[], key="clean_target_cols")
         with clean_col3:
             fill_value: Optional[Any] = None
             if strategy == "constant":
-                fill_value_raw = st.text_input(TXT["const_val"])
+                fill_value_raw = st.text_input(TXT["const_val"], key="clean_fill_value")
                 if fill_value_raw != "":
                     try:
                         if "." in fill_value_raw:
@@ -771,17 +880,16 @@ def render_cleaning_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
                             fill_value = int(fill_value_raw)
                     except ValueError:
                         fill_value = fill_value_raw
-
             st.write("")
             if st.button(f"🧹 {TXT['clean_now']}", key="clean_btn", use_container_width=True):
                 try:
-                    st.session_state.df = preprocessing.process_missing_values(
-                        st.session_state.df,
-                        strategy=strategy,
-                        columns=target_cols if target_cols else None,
-                        fill_value=fill_value,
-                        column_types=st.session_state.column_types,
+                    label = f"Missing: {strategy}" + (f" on {len(target_cols)} col(s)" if target_cols else " on all")
+                    st.session_state.pipeline.add_step(
+                        op="process_missing",
+                        params={"strategy": strategy, "columns": target_cols if target_cols else None, "fill_value": fill_value},
+                        label=label,
                     )
+                    _recompute_from_pipeline()
                     st.success(f"✅ {TXT['file_cleaned']}")
                     st.rerun()
                 except Exception as e:
@@ -798,7 +906,6 @@ def render_cleaning_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
         )
         total_missing = df.isna().sum().sum()
         st.metric(TXT["total_missing"], f"{total_missing:,}")
-
         if total_missing > 0:
             most_missing_col = df.isna().sum().idxmax()
             most_missing_pct = (df.isna().sum().max() / len(df)) * 100
@@ -807,13 +914,165 @@ def render_cleaning_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
             st.success(f"✅ {TXT['no_missing']}")
 
 
+def _render_quality_subtab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
+    """
+    Render the Data Quality builder, run, and report download UI.
+    """
+    st.markdown("#### " + TXT["quality_builder"])
+
+    with st.form("quality_rule_form"):
+        col0, col1, col2 = st.columns([1.5, 1.5, 1.5])
+        with col0:
+            rule_type = st.selectbox(
+                TXT["rule_type"],
+                [
+                    TXT["r_not_null"],
+                    TXT["r_unique"],
+                    TXT["r_unique_multi"],
+                    TXT["r_min"],
+                    TXT["r_max"],
+                    TXT["r_between"],
+                    TXT["r_allowed"],
+                    TXT["r_regex"],
+                    TXT["r_dtype"],
+                ],
+                key="qual_rule_type",
+            )
+
+        params: Dict[str, Any] = {}
+        internal_map = {
+            TXT["r_not_null"]: "not_null",
+            TXT["r_unique"]: "unique",
+            TXT["r_unique_multi"]: "unique_multi",
+            TXT["r_min"]: "min",
+            TXT["r_max"]: "max",
+            TXT["r_between"]: "between",
+            TXT["r_allowed"]: "allowed",
+            TXT["r_regex"]: "regex",
+            TXT["r_dtype"]: "dtype",
+        }
+        rkey = internal_map[rule_type]
+
+        if rkey == "unique_multi":
+            with col1:
+                cols = st.multiselect(TXT["rule_columns"], df.columns, key="qual_cols_multi")
+                params["columns"] = cols
+        else:
+            with col1:
+                col = st.selectbox(TXT["rule_column"], df.columns, key="qual_col_single")
+                params["column"] = col
+
+        with col2:
+            if rkey == "min":
+                params["min"] = st.number_input(TXT["rule_min"], value=0.0, key="qual_min")
+            elif rkey == "max":
+                params["max"] = st.number_input(TXT["rule_max"], value=0.0, key="qual_max")
+            elif rkey == "between":
+                c1, c2 = st.columns(2)
+                with c1:
+                    params["min"] = st.number_input(TXT["rule_min"], value=0.0, key="qual_between_min")
+                with c2:
+                    params["max"] = st.number_input(TXT["rule_max"], value=1.0, key="qual_between_max")
+            elif rkey == "allowed":
+                text = st.text_input(TXT["rule_allowed"], key="qual_allowed")
+                params["allowed"] = [v.strip() for v in text.split(",") if v.strip() != ""]
+            elif rkey == "regex":
+                params["pattern"] = st.text_input(TXT["rule_regex"], key="qual_regex")
+            elif rkey == "dtype":
+                params["dtype"] = st.text_input(
+                    TXT["rule_dtype"], value=str(df[params.get("column", df.columns[0])].dtype), key="qual_dtype"
+                )
+
+        submitted = st.form_submit_button(TXT["quality_add_rule"], use_container_width=True)
+        if submitted:
+            rule = {"type": rkey, "params": params}
+            st.session_state.quality_rules.append(rule)
+            st.success("✅ Rule added.")
+
+    st.markdown("#### " + TXT["quality_rules"])
+    if not st.session_state.quality_rules:
+        st.info(TXT["no_steps"])
+    else:
+        for i, rule in enumerate(st.session_state.quality_rules):
+            st.write(f"{i+1}. {qc.rule_label(rule)}")
+        colA, colB, colC = st.columns(3)
+        with colA:
+            if st.button(TXT["quality_reset_rules"], key="btn_quality_reset", use_container_width=True):
+                st.session_state.quality_rules = []
+                st.success("Rules cleared.")
+                st.rerun()
+        with colB:
+            rules_json = json.dumps(st.session_state.quality_rules, ensure_ascii=False, indent=2)
+            st.download_button(
+                label=TXT["quality_save_rules"],
+                data=rules_json,
+                file_name=f"quality_rules_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                use_container_width=True,
+                key="btn_quality_save",
+            )
+        with colC:
+            uploaded_rules = st.file_uploader(TXT["quality_load_rules"], type=["json"], key="qual_rules_loader")
+            if uploaded_rules is not None:
+                try:
+                    data = json.load(uploaded_rules)
+                    if isinstance(data, list):
+                        st.session_state.quality_rules = data
+                        st.success(TXT["quality_loaded"])
+                        st.rerun()
+                    else:
+                        st.error("Invalid rules file.")
+                except Exception as e:
+                    st.error(f"Failed to load rules: {e}")
+
+    st.markdown("---")
+
+    if st.button(TXT["quality_run"], key="btn_quality_run", use_container_width=True):
+        if not st.session_state.quality_rules:
+            st.warning("Add at least one rule.")
+        else:
+            st.session_state.pipeline.add_step(
+                op="quality_check",
+                params={"rules_count": len(st.session_state.quality_rules)},
+                label=f"Quality: {len(st.session_state.quality_rules)} rule(s)",
+            )
+            results, summary = qc.run_rules(df, st.session_state.quality_rules)
+            st.session_state.quality_results = results
+            st.session_state.quality_summary = summary
+            st.success("✅ Quality checks completed.")
+
+    if "quality_summary" in st.session_state:
+        summary = st.session_state.quality_summary
+        st.markdown("#### " + TXT["quality_kpis"])
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            st.metric(TXT["quality_pass_rate"], f"{summary['pass_rate']:.1f}%")
+        with k2:
+            st.metric(TXT["quality_failed_rows"], f"{summary['failed_rows']:,}")
+        with k3:
+            st.metric(TXT["quality_issue_columns"], f"{len(summary['issue_columns'])}")
+        details = qc.results_table(st.session_state.quality_results)
+        st.dataframe(details, use_container_width=True, height=300)
+        html = qc.generate_html_report(
+            df,
+            st.session_state.quality_rules,
+            st.session_state.quality_results,
+            summary,
+            meta={"generated_at": datetime.now().isoformat()},
+        )
+        st.download_button(
+            label=TXT["quality_download"],
+            data=html.encode("utf-8"),
+            file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+            mime="text/html",
+            use_container_width=True,
+            key="btn_quality_report",
+        )
+
+
 def render_visualizations_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """
-    Render the visualizations tab.
-
-    Args:
-        TXT: Language configuration dictionary.
-        df: Current DataFrame.
+    Render the visualizations tab (including Data Quality subtab).
     """
     st.markdown(
         f"""
@@ -827,38 +1086,38 @@ def render_visualizations_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     num_columns = [c for c, t in st.session_state.column_types.items() if t == "num" and c in df.columns]
     cat_columns = [c for c, t in st.session_state.column_types.items() if t == "cat" and c in df.columns]
 
-    viz_tab1, viz_tab2, viz_tab3, viz_tab4 = st.tabs(
+    viz_tab1, viz_tab2, viz_tab3, viz_tab4, viz_tab5 = st.tabs(
         [
             f"🔍 {TXT['missing_data']}",
             f"📈 {TXT['numerical_analysis']}",
             f"🏷️ {TXT['categorical_analysis']}",
             f"🧠 {TXT['advanced_analysis']}",
+            f"{TXT['quality_tab']}",
         ]
     )
 
     with viz_tab1:
         st.markdown(f"#### {TXT['missing_data']}")
-        visualization.create_compact_missing_overview(df)
+        visualization.create_compact_missing_overview(df, key_prefix="viz_missing")
 
     with viz_tab2:
         st.markdown(f"#### {TXT['numerical_analysis']}")
-        visualization.create_numerical_visualizations(df, num_columns)
+        visualization.create_numerical_visualizations(df, num_columns, key_prefix="viz_numeric")
 
     with viz_tab3:
         st.markdown(f"#### {TXT['categorical_analysis']}")
-        visualization.create_categorical_visualizations(df, cat_columns)
+        visualization.create_categorical_visualizations(df, cat_columns, key_prefix="viz_categorical")
 
     with viz_tab4:
-        visualization.create_advanced_analysis(df, st.session_state.column_types)
+        visualization.create_advanced_analysis(df, st.session_state.column_types, key_prefix="viz_advanced")
+
+    with viz_tab5:
+        _render_quality_subtab(TXT, df)
 
 
 def render_export_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     """
     Render the export tab.
-
-    Args:
-        TXT: Language configuration dictionary.
-        df: Current DataFrame.
     """
     st.markdown(
         f"""
@@ -870,67 +1129,41 @@ def render_export_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
     )
 
     col1, col2 = st.columns([2, 1])
-
     with col1:
         st.markdown(f"#### {TXT['final_summary']}")
-
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-        with metric_col1:
-            st.metric(TXT["rows"], f"{len(df):,}")
-        with metric_col2:
-            st.metric(TXT["columns"], f"{len(df.columns):,}")
-        with metric_col3:
-            st.metric(TXT["missing_values"], f"{df.isna().sum().sum():,}")
-        with metric_col4:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.metric(TXT["rows"], f"{len(df):,}")
+        with c2: st.metric(TXT["columns"], f"{len(df.columns):,}")
+        with c3: st.metric(TXT["missing_values"], f"{df.isna().sum().sum():,}")
+        with c4:
             memory_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
             st.metric(TXT["memory_usage"], f"{memory_mb:.1f} MB")
 
         st.markdown("---")
-
-        export_format = st.radio(f"📁 {TXT['export_format']}:", ["CSV", "Excel"], horizontal=True)
+        export_format = st.radio(f"📁 {TXT['export_format']}:", ["CSV", "Excel", TXT["export_parquet"]], horizontal=True, key="export_format_radio")
 
         @st.cache_data
         def generate_download_data(dataframe: pd.DataFrame, format_type: str):
-            """
-            Generate downloadable data buffer for CSV or Excel exports.
-
-            Args:
-                dataframe: DataFrame to export.
-                format_type: 'CSV' or 'Excel'.
-
-            Returns:
-                Tuple[bytes|io.BytesIO, str, str]: data, mime type, and filename.
-            """
             if format_type == "CSV":
                 return dataframe.to_csv(index=False).encode("utf-8"), "text/csv", "cleaned_data.csv"
-            else:
+            elif format_type == "Excel":
                 buffer = io.BytesIO()
                 dataframe.to_excel(buffer, index=False, engine="openpyxl")
                 buffer.seek(0)
-                return (
-                    buffer,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "cleaned_data.xlsx",
-                )
+                return buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "cleaned_data.xlsx"
+            else:
+                buffer = io.BytesIO()
+                dataframe.to_parquet(buffer, index=False, compression="snappy")
+                buffer.seek(0)
+                return buffer, "application/octet-stream", "cleaned_data.parquet"
 
-        data, mime_type, filename = generate_download_data(df, export_format)
-
+        data, mime_type, filename = generate_download_data(df, "Parquet" if export_format == TXT["export_parquet"] else export_format)
         if export_format == "CSV":
-            st.download_button(
-                label=TXT["download_csv"],
-                data=data,
-                file_name=filename,
-                mime=mime_type,
-                use_container_width=True,
-            )
+            st.download_button(label=TXT["download_csv"], data=data, file_name=filename, mime=mime_type, use_container_width=True, key="btn_dl_csv")
+        elif export_format == "Excel":
+            st.download_button(label=TXT["download_excel"], data=data, file_name=filename, mime=mime_type, use_container_width=True, key="btn_dl_xlsx")
         else:
-            st.download_button(
-                label=TXT["download_excel"],
-                data=data,
-                file_name=filename,
-                mime=mime_type,
-                use_container_width=True,
-            )
+            st.download_button(label=TXT["download_parquet"], data=data, file_name=filename, mime=mime_type, use_container_width=True, key="btn_dl_parquet")
 
     with col2:
         st.markdown(
@@ -941,7 +1174,6 @@ def render_export_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
         """,
             unsafe_allow_html=True,
         )
-
         type_summary = pd.DataFrame(
             {
                 TXT["columns"]: list(st.session_state.column_types.keys()),
@@ -953,27 +1185,19 @@ def render_export_tab(TXT: Dict[str, str], df: pd.DataFrame) -> None:
 
         config_data = {
             "column_types": st.session_state.column_types,
-            "original_shape": st.session_state.df_original.shape,
+            "original_shape": st.session_state.df_original.shape if "df_original" in st.session_state else None,
             "final_shape": df.shape,
             "language": TXT["title"],
+            "pipeline": st.session_state.pipeline.to_dict(),
+            "quality_rules": st.session_state.quality_rules,
         }
-
         config_json = pd.Series(config_data).to_json()
-        st.download_button(
-            label=TXT["download_config"],
-            data=config_json,
-            file_name="cleaning_config.json",
-            mime="application/json",
-            use_container_width=True,
-        )
+        st.download_button(label=TXT["download_config"], data=config_json, file_name="cleaning_config.json", mime="application/json", use_container_width=True, key="btn_dl_config")
 
 
 def render_welcome_screen(TXT: Dict[str, str]) -> None:
     """
     Render the welcome screen when no file is uploaded.
-
-    Args:
-        TXT: Language configuration dictionary.
     """
     st.markdown(
         f"""
@@ -986,97 +1210,42 @@ def render_welcome_screen(TXT: Dict[str, str]) -> None:
     )
 
     col1, col2, col3 = st.columns(3)
-
-    card_style = (
-        "background: var(--bg-surface); padding: 24px; border-radius: 10px; "
-        "box-shadow: 0 4px 10px rgba(0,0,0,0.3); height: 200px; border: 1px solid var(--border-color);"
-    )
-
+    card_style = "background: var(--bg-surface); padding: 24px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); height: 200px; border: 1px solid var(--border-color);"
     with col1:
-        st.markdown(
-            f"""
-        <div style="{card_style}">
-            <h3 style="color: var(--info-color);">{TXT['feature1_title']}</h3>
-            <p style="color: var(--text-muted);">{TXT['feature1_desc']}</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
+        st.markdown(f"""<div style="{card_style}"><h3 style="color: var(--info-color);">{TXT['feature1_title']}</h3><p style="color: var(--text-muted);">{TXT['feature1_desc']}</p></div>""", unsafe_allow_html=True)
     with col2:
-        st.markdown(
-            f"""
-        <div style="{card_style}">
-            <h3 style="color: var(--primary-color);">{TXT['feature2_title']}</h3>
-            <p style="color: var(--text-muted);">{TXT['feature2_desc']}</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
+        st.markdown(f"""<div style="{card_style}"><h3 style="color: var(--primary-color);">{TXT['feature2_title']}</h3><p style="color: var(--text-muted);">{TXT['feature2_desc']}</p></div>""", unsafe_allow_html=True)
     with col3:
-        st.markdown(
-            f"""
-        <div style="{card_style}">
-            <h3 style="color: var(--success-color);">{TXT['feature3_title']}</h3>
-            <p style="color: var(--text-muted);">{TXT['feature3_desc']}</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"""<div style="{card_style}"><h3 style="color: var(--success-color);">{TXT['feature3_title']}</h3><p style="color: var(--text-muted);">{TXT['feature3_desc']}</p></div>""", unsafe_allow_html=True)
 
-    st.markdown(
-        f"""
-    <div style="text-align: center; margin-top: 28px; font-size: 1.05em; color: var(--text-muted);">
-        <p>{TXT['get_started']}</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"""<div style="text-align: center; margin-top: 28px; font-size: 1.05em; color: var(--text-muted);"><p>{TXT['get_started']}</p></div>""", unsafe_allow_html=True)
 
 
 def main() -> None:
     """
-    Main application function that orchestrates the entire Streamlit app.
-
-    Flow:
-    - Session state initialization
-    - Language selection
-    - File upload and processing
-    - Tab navigation and rendering
-    - Welcome screen for new users
+    Orchestrate the Streamlit app.
     """
     initialize_session_state()
     TXT, lang = setup_language_selection()
     render_header(TXT)
 
     uploaded_file = render_sidebar_upload(TXT)
-
     if uploaded_file:
         process_uploaded_file(uploaded_file, TXT)
 
     if "df" in st.session_state:
         df = st.session_state.df
-
         if len(df) > 50_000:
-            st.warning(
-                f"⚠️ {TXT['warning']}: Large dataset detected ({len(df):,} rows). Some operations may be slower."
-            )
+            st.warning(f"⚠️ {TXT['warning']}: Large dataset detected ({len(df):,} rows). Some operations may be slower.")
 
         render_sidebar_controls(TXT, df)
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([TXT["step1"], TXT["step2"], TXT["step3"], TXT["step4"], TXT["step5"]])
-
-        with tab1:
-            render_column_types_tab(TXT, df)
-        with tab2:
-            render_preview_tab(TXT, df)
-        with tab3:
-            render_cleaning_tab(TXT, df)
-        with tab4:
-            render_visualizations_tab(TXT, df)
-        with tab5:
-            render_export_tab(TXT, df)
+        with tab1: render_column_types_tab(TXT, df)
+        with tab2: render_preview_tab(TXT, df)
+        with tab3: render_cleaning_tab(TXT, df)
+        with tab4: render_visualizations_tab(TXT, df)
+        with tab5: render_export_tab(TXT, df)
     else:
         render_welcome_screen(TXT)
 
