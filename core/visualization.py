@@ -9,11 +9,11 @@ Provides professional data visualization functions for data analysis including:
 - Advanced analysis (outliers, scatter matrix, distribution by category)
 with a cohesive, modern dark theme.
 
-This version fixes widget key stability (so selected viz renders correctly) and applies
-a unified color theme across all plots.
+This version fixes widget key stability and unifies color themes. It also adds
+sampling safeguards for large datasets to keep the app smooth and responsive.
 
 Author: Data Cleaning Tool Team
-Version: 2.5.2
+Version: 2.5.3
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ px.defaults.template = "plotly_dark"
 px.defaults.color_discrete_sequence = COLORWAY
 px.defaults.color_continuous_scale = CONTINUOUS_SCALE
 
-# Accents
+# Accent colors
 PROFESSIONAL_COLORS = {
     "primary": "#60a5fa",
     "secondary": "#f59e0b",
@@ -69,7 +69,15 @@ def _apply_dark_layout(fig, height: Optional[int] = None, hovermode: Optional[st
         font=dict(color=TEXT_COLOR, size=12),
         margin=dict(l=50, r=50, t=50, b=50),
         hovermode=hovermode,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(0,0,0,0)", font=dict(size=11, color=TEXT_COLOR)),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11, color=TEXT_COLOR),
+        ),
         bargap=0.05,
     )
     if height is not None:
@@ -98,6 +106,16 @@ def _enhance_bars(fig) -> None:
 
 def _uniq(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex}"
+
+
+def _maybe_sample(df: pd.DataFrame, max_rows: int = 100_000) -> pd.DataFrame:
+    """
+    Sample the DataFrame to max_rows for plotting-heavy operations.
+    Deterministic sampling for reproducibility.
+    """
+    if len(df) > max_rows:
+        return df.sample(max_rows, random_state=42)
+    return df
 
 
 def create_data_overview_dashboard(df: pd.DataFrame, column_types: Dict[str, str]) -> None:
@@ -213,7 +231,7 @@ def create_compact_missing_overview(df: pd.DataFrame, key_prefix: Optional[str] 
 
     with col2:
         sample_size = min(1000, len(df))
-        sample_df = df.sample(sample_size) if len(df) > sample_size else df
+        sample_df = df.sample(sample_size, random_state=42) if len(df) > sample_size else df
         missing_matrix = sample_df.isna().astype(int)
         missing_scale = [(0.0, DARK_BG_PANEL), (1.0, PROFESSIONAL_COLORS["warning"])]
         fig = px.imshow(missing_matrix.T, aspect="auto", color_continuous_scale=missing_scale, title="Missing Values Pattern")
@@ -230,6 +248,7 @@ def create_numerical_visualizations(df: pd.DataFrame, num_columns: List[str], ke
 
     kp = key_prefix or "num"
     col_select, viz_select = st.columns([2, 1])
+
     with col_select:
         selected_cols = st.multiselect(
             "📈 Select numerical columns to visualize:",
@@ -238,6 +257,7 @@ def create_numerical_visualizations(df: pd.DataFrame, num_columns: List[str], ke
             help="Choose up to 6 columns for optimal display",
             key=f"{kp}_num_select",
         )
+
     with viz_select:
         viz_type = st.selectbox(
             "📊 Visualization Type:",
@@ -265,59 +285,125 @@ def _create_numerical_plots(df: pd.DataFrame, selected_cols: List[str], viz_type
 
 
 def _create_distribution_plots(df: pd.DataFrame, selected_cols: List[str], kp: str) -> None:
+    dfp = _maybe_sample(df)
     num_plots = len(selected_cols)
+
     if num_plots == 1:
         fig = px.histogram(
-            df, x=selected_cols[0], nbins=30, title=f"Distribution of {selected_cols[0]}",
-            color_discrete_sequence=[PROFESSIONAL_COLORS["primary"]], opacity=0.9, marginal="rug",
+            dfp,
+            x=selected_cols[0],
+            nbins=30,
+            title=f"Distribution of {selected_cols[0]}",
+            color_discrete_sequence=[PROFESSIONAL_COLORS["primary"]],
+            opacity=0.9,
+            marginal="rug",
         )
-        _enhance_bars(fig); _apply_dark_layout(fig, height=360)
+        _enhance_bars(fig)
+        _apply_dark_layout(fig, height=360)
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_dist_{selected_cols[0]}"))
+
     elif num_plots == 2:
         col1, col2 = st.columns(2)
         for i, col in enumerate(selected_cols):
             with col1 if i == 0 else col2:
                 fig = px.histogram(
-                    df, x=col, nbins=25, title=f"{col}",
-                    color_discrete_sequence=[PROFESSIONAL_COLORS["primary"] if i == 0 else PROFESSIONAL_COLORS["secondary"]],
+                    dfp,
+                    x=col,
+                    nbins=25,
+                    title=f"{col}",
+                    color_discrete_sequence=[
+                        PROFESSIONAL_COLORS["primary"] if i == 0 else PROFESSIONAL_COLORS["secondary"]
+                    ],
                     opacity=0.9,
                 )
-                _enhance_bars(fig); _apply_dark_layout(fig, height=320)
+                _enhance_bars(fig)
+                _apply_dark_layout(fig, height=320)
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_dist_{col}_{i}"))
     else:
         cols = st.columns(2)
-        colors = [PROFESSIONAL_COLORS["primary"], PROFESSIONAL_COLORS["secondary"], PROFESSIONAL_COLORS["success"], PROFESSIONAL_COLORS["warning"], PROFESSIONAL_COLORS["purple"], PROFESSIONAL_COLORS["pink"]]
+        colors = [
+            PROFESSIONAL_COLORS["primary"],
+            PROFESSIONAL_COLORS["secondary"],
+            PROFESSIONAL_COLORS["success"],
+            PROFESSIONAL_COLORS["warning"],
+            PROFESSIONAL_COLORS["purple"],
+            PROFESSIONAL_COLORS["pink"],
+        ]
         for i, col in enumerate(selected_cols):
             with cols[i % 2]:
-                fig = px.histogram(df, x=col, nbins=20, title=f"{col}", color_discrete_sequence=[colors[i % len(colors)]], opacity=0.9)
-                _enhance_bars(fig); _apply_dark_layout(fig, height=300)
+                fig = px.histogram(
+                    dfp,
+                    x=col,
+                    nbins=20,
+                    title=f"{col}",
+                    color_discrete_sequence=[colors[i % len(colors)]],
+                    opacity=0.9,
+                )
+                _enhance_bars(fig)
+                _apply_dark_layout(fig, height=300)
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_dist_multi_{col}_{i}"))
 
 
 def _create_box_plots(df: pd.DataFrame, selected_cols: List[str], kp: str) -> None:
+    dfp = _maybe_sample(df)
     num_plots = len(selected_cols)
+
     if num_plots == 1:
-        fig = px.box(df, y=selected_cols[0], title=f"Box Plot: {selected_cols[0]}", color_discrete_sequence=[PROFESSIONAL_COLORS["success"]], points="outliers")
+        fig = px.box(
+            dfp,
+            y=selected_cols[0],
+            title=f"Box Plot: {selected_cols[0]}",
+            color_discrete_sequence=[PROFESSIONAL_COLORS["success"]],
+            points="outliers",
+        )
         _apply_dark_layout(fig, height=360)
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_box_{selected_cols[0]}"))
+
     elif num_plots == 2:
         col1, col2 = st.columns(2)
         for i, col in enumerate(selected_cols):
             with col1 if i == 0 else col2:
-                fig = px.box(df, y=col, title=f"{col}", color_discrete_sequence=[PROFESSIONAL_COLORS["success"] if i == 0 else PROFESSIONAL_COLORS["warning"]], points="outliers")
+                fig = px.box(
+                    dfp,
+                    y=col,
+                    title=f"{col}",
+                    color_discrete_sequence=[
+                        PROFESSIONAL_COLORS["success"] if i == 0 else PROFESSIONAL_COLORS["warning"]
+                    ],
+                    points="outliers",
+                )
                 _apply_dark_layout(fig, height=320)
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_box_{col}_{i}"))
     else:
-        df_melted = df[selected_cols].melt(var_name="Column", value_name="Value")
-        fig = px.box(df_melted, x="Column", y="Value", title="Box Plots Comparison", color="Column", color_discrete_sequence=COLORWAY, points=False)
-        _apply_dark_layout(fig, height=420); fig.update_layout(showlegend=False); fig.update_xaxes(tickangle=45)
+        df_melted = _maybe_sample(df[selected_cols]).melt(var_name="Column", value_name="Value")
+        fig = px.box(
+            df_melted,
+            x="Column",
+            y="Value",
+            title="Box Plots Comparison",
+            color="Column",
+            color_discrete_sequence=COLORWAY,
+            points=False,
+        )
+        _apply_dark_layout(fig, height=420)
+        fig.update_layout(showlegend=False)
+        fig.update_xaxes(tickangle=45)
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_box_multi"))
 
 
 def _create_correlation_matrix(df: pd.DataFrame, selected_cols: List[str], kp: str) -> None:
     if len(selected_cols) > 1:
-        corr_matrix = df[selected_cols].corr(numeric_only=True)
-        fig = px.imshow(corr_matrix, text_auto=True, aspect="auto", color_continuous_scale=CONTINUOUS_SCALE, zmin=corr_matrix.min().min(), zmax=corr_matrix.max().max(), title="Correlation Matrix")
+        dfp = df[selected_cols]
+        corr_matrix = dfp.corr(numeric_only=True)
+        fig = px.imshow(
+            corr_matrix,
+            text_auto=True,
+            aspect="auto",
+            color_continuous_scale=CONTINUOUS_SCALE,
+            zmin=corr_matrix.min().min(),
+            zmax=corr_matrix.max().max(),
+            title="Correlation Matrix",
+        )
         _apply_dark_layout(fig, height=460, hovermode=None)
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_corr"))
         _display_correlation_insights(corr_matrix)
@@ -368,6 +454,7 @@ def create_categorical_visualizations(df: pd.DataFrame, cat_columns: List[str], 
 
     kp = key_prefix or "cat"
     col_select, viz_select = st.columns([2, 1])
+
     with col_select:
         selected_cols = st.multiselect(
             "🏷️ Select categorical columns to visualize:",
@@ -376,6 +463,7 @@ def create_categorical_visualizations(df: pd.DataFrame, cat_columns: List[str], 
             help="Choose columns to analyze",
             key=f"{kp}_cat_select",
         )
+
     with viz_select:
         viz_type = st.selectbox(
             "📊 Visualization Type:",
@@ -402,6 +490,7 @@ def _create_categorical_plots(df: pd.DataFrame, selected_cols: List[str], viz_ty
 
 def _create_value_count_plots(df: pd.DataFrame, selected_cols: List[str], kp: str) -> None:
     num_plots = len(selected_cols)
+
     if num_plots == 1:
         col = selected_cols[0]
         top_values = df[col].value_counts().head(15)
@@ -414,22 +503,31 @@ def _create_value_count_plots(df: pd.DataFrame, selected_cols: List[str], kp: st
             color_discrete_sequence=COLORWAY,
         )
         fig.update_traces(text=top_values.values, textposition="outside")
-        _enhance_bars(fig); _apply_dark_layout(fig, height=440)
-        fig.update_xaxes(title="Count"); fig.update_yaxes(title="Categories", categoryorder="total ascending")
+        _enhance_bars(fig)
+        _apply_dark_layout(fig, height=440)
+        fig.update_xaxes(title="Count")
+        fig.update_yaxes(title="Categories", categoryorder="total ascending")
         fig.update_layout(margin=dict(r=70))
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_cat_counts_{col}"))
+
     elif num_plots == 2:
         col1, col2 = st.columns(2)
         for i, col in enumerate(selected_cols):
             with col1 if i == 0 else col2:
                 top_values = df[col].value_counts().head(10)
                 fig = px.bar(
-                    x=top_values.values, y=top_values.index, orientation="h", title=f"{col}",
-                    color=top_values.index, color_discrete_sequence=COLORWAY,
+                    x=top_values.values,
+                    y=top_values.index,
+                    orientation="h",
+                    title=f"{col}",
+                    color=top_values.index,
+                    color_discrete_sequence=COLORWAY,
                 )
                 fig.update_traces(text=top_values.values, textposition="outside")
-                _enhance_bars(fig); _apply_dark_layout(fig, height=360)
-                fig.update_xaxes(title="Count"); fig.update_yaxes(title="", categoryorder="total ascending")
+                _enhance_bars(fig)
+                _apply_dark_layout(fig, height=360)
+                fig.update_xaxes(title="Count")
+                fig.update_yaxes(title="", categoryorder="total ascending")
                 fig.update_layout(margin=dict(r=60))
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_cat_counts_{col}_{i}"))
     else:
@@ -438,12 +536,18 @@ def _create_value_count_plots(df: pd.DataFrame, selected_cols: List[str], kp: st
             with cols[i % 2]:
                 top_values = df[col].value_counts().head(8)
                 fig = px.bar(
-                    x=top_values.values, y=top_values.index, orientation="h", title=f"{col}",
-                    color=top_values.index, color_discrete_sequence=COLORWAY,
+                    x=top_values.values,
+                    y=top_values.index,
+                    orientation="h",
+                    title=f"{col}",
+                    color=top_values.index,
+                    color_discrete_sequence=COLORWAY,
                 )
                 fig.update_traces(text=top_values.values, textposition="outside")
-                _enhance_bars(fig); _apply_dark_layout(fig, height=320)
-                fig.update_xaxes(title="Count"); fig.update_yaxes(title="", categoryorder="total ascending")
+                _enhance_bars(fig)
+                _apply_dark_layout(fig, height=320)
+                fig.update_xaxes(title="Count")
+                fig.update_yaxes(title="", categoryorder="total ascending")
                 fig.update_layout(margin=dict(r=50))
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_cat_counts_{col}_{i}"))
 
@@ -451,6 +555,7 @@ def _create_value_count_plots(df: pd.DataFrame, selected_cols: List[str], kp: st
 def _create_top_categories_display(df: pd.DataFrame, selected_cols: List[str]) -> None:
     num_cols = len(selected_cols)
     cols = st.columns(num_cols if num_cols <= 3 else 3)
+
     for i, col in enumerate(selected_cols):
         with cols[i % len(cols)]:
             if not df[col].empty:
@@ -461,25 +566,45 @@ def _create_top_categories_display(df: pd.DataFrame, selected_cols: List[str]) -
                 top_count = int(counts.iloc[0])
                 total = int(len(df[col].dropna()))
                 percentage = (top_count / total * 100) if total else 0
-                st.metric(label=f"🏆 Top in {col}", value=str(top_value)[:20] + "..." if len(str(top_value)) > 20 else str(top_value), delta=f"{top_count:,} ({percentage:.1f}%)")
+                st.metric(
+                    label=f"🏆 Top in {col}",
+                    value=str(top_value)[:20] + "..." if len(str(top_value)) > 20 else str(top_value),
+                    delta=f"{top_count:,} ({percentage:.1f}%)",
+                )
                 st.caption(f"Total unique: {counts.index.nunique():,}")
 
 
 def _create_category_distribution_plots(df: pd.DataFrame, selected_cols: List[str], kp: str) -> None:
     num_plots = len(selected_cols)
+
     if num_plots == 1:
         col = selected_cols[0]
         top_values = df[col].value_counts().head(8)
-        fig = px.pie(values=top_values.values, names=top_values.index, title=f"Distribution: {col}", color_discrete_sequence=COLORWAY, hole=0.35)
-        _apply_dark_layout(fig, height=420); fig.update_traces(textinfo="percent+label", textfont=dict(color=TEXT_COLOR))
+        fig = px.pie(
+            values=top_values.values,
+            names=top_values.index,
+            title=f"Distribution: {col}",
+            color_discrete_sequence=COLORWAY,
+            hole=0.35,
+        )
+        _apply_dark_layout(fig, height=420)
+        fig.update_traces(textinfo="percent+label", textfont=dict(color=TEXT_COLOR))
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_cat_pie_{col}"))
+
     elif num_plots == 2:
         col1, col2 = st.columns(2)
         for i, col in enumerate(selected_cols):
             with col1 if i == 0 else col2:
                 top_values = df[col].value_counts().head(6)
-                fig = px.pie(values=top_values.values, names=top_values.index, title=f"{col}", color_discrete_sequence=COLORWAY, hole=0.35)
-                _apply_dark_layout(fig, height=360); fig.update_traces(textinfo="percent+label", textfont=dict(color=TEXT_COLOR))
+                fig = px.pie(
+                    values=top_values.values,
+                    names=top_values.index,
+                    title=f"{col}",
+                    color_discrete_sequence=COLORWAY,
+                    hole=0.35,
+                )
+                _apply_dark_layout(fig, height=360)
+                fig.update_traces(textinfo="percent+label", textfont=dict(color=TEXT_COLOR))
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_cat_pie_{col}_{i}"))
     else:
         cols = st.columns(2)
@@ -488,9 +613,16 @@ def _create_category_distribution_plots(df: pd.DataFrame, selected_cols: List[st
                 top_values = df[col].value_counts().head(5)
                 total = int(df[col].count())
                 percentages = (top_values / total * 100).round(1) if total else top_values
-                fig = px.bar(x=percentages.values, y=percentages.index, orientation="h", title=f"{col} (%)", color_discrete_sequence=[PROFESSIONAL_COLORS["primary"]])
+                fig = px.bar(
+                    x=percentages.values,
+                    y=percentages.index,
+                    orientation="h",
+                    title=f"{col} (%)",
+                    color_discrete_sequence=[PROFESSIONAL_COLORS["primary"]],
+                )
                 fig.update_traces(text=percentages.values, textposition="outside")
-                _enhance_bars(fig); _apply_dark_layout(fig, height=260)
+                _enhance_bars(fig)
+                _apply_dark_layout(fig, height=260)
                 fig.update_xaxes(title="Percentage (%)")
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_cat_bar_{col}_{i}"))
 
@@ -500,26 +632,43 @@ def create_advanced_analysis(df: pd.DataFrame, column_types: Dict[str, str], key
     num_cols = [c for c, t in column_types.items() if t == "num" and c in df.columns]
     cat_cols = [c for c, t in column_types.items() if t == "cat" and c in df.columns]
 
+    # 1) Outlier analysis
     st.markdown("### 📌 Outlier Analysis (IQR method)")
     if num_cols:
         summary = []
         for c in num_cols:
             series = df[c].dropna()
             if series.empty:
-                summary.append((c, 0.0, 0)); continue
-            q1, q3 = series.quantile(0.25), series.quantile(0.75)
-            iqr = q3 - q1; lower = q1 - 1.5 * iqr; upper = q3 + 1.5 * iqr
+                summary.append((c, 0.0, 0))
+                continue
+            q1 = series.quantile(0.25)
+            q3 = series.quantile(0.75)
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
             outliers = ((series < lower) | (series > upper)).sum()
             pct = (outliers / len(series) * 100) if len(series) else 0.0
             summary.append((c, pct, outliers))
-        out_df = pd.DataFrame(summary, columns=["Column", "Outlier %", "Outlier Count"]).sort_values("Outlier %", ascending=False)
+        out_df = pd.DataFrame(summary, columns=["Column", "Outlier %", "Outlier Count"]).sort_values(
+            "Outlier %", ascending=False
+        )
         top_out = out_df.head(8)
         if not top_out.empty:
             col1, col2 = st.columns([2, 1])
             with col1:
-                fig = px.bar(top_out, x="Outlier %", y="Column", orientation="h", color="Outlier %", color_continuous_scale=CONTINUOUS_SCALE, title="Top Outlier Rates by Column")
+                fig = px.bar(
+                    top_out,
+                    x="Outlier %",
+                    y="Column",
+                    orientation="h",
+                    color="Outlier %",
+                    color_continuous_scale=CONTINUOUS_SCALE,
+                    title="Top Outlier Rates by Column",
+                )
                 fig.update_traces(text=top_out["Outlier %"].round(1), textposition="outside")
-                _enhance_bars(fig); _apply_dark_layout(fig, height=360); fig.update_layout(margin=dict(r=70))
+                _enhance_bars(fig)
+                _apply_dark_layout(fig, height=360)
+                fig.update_layout(margin=dict(r=70))
                 st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_outliers"))
             with col2:
                 st.dataframe(top_out, use_container_width=True, height=360)
@@ -527,30 +676,56 @@ def create_advanced_analysis(df: pd.DataFrame, column_types: Dict[str, str], key
             st.info("No numerical data to analyze outliers.")
     else:
         st.info("No numerical columns available.")
+
     st.markdown("---")
 
+    # 2) Scatter matrix (sampled)
     st.markdown("### 🔬 Scatter Matrix")
     if len(num_cols) >= 2:
         sm_cols = num_cols[:5]
-        sample_n = min(1000, len(df)); sample_df = df.sample(sample_n, random_state=42) if len(df) > sample_n else df
+        sample_n = min(1000, len(df))
+        sample_df = df.sample(sample_n, random_state=42) if len(df) > sample_n else df
         fig = px.scatter_matrix(sample_df, dimensions=sm_cols, color=None, title="Scatter Matrix (sampled)")
         _apply_dark_layout(fig, height=520, hovermode=None)
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_scatter_matrix"))
     else:
         st.info("Need at least 2 numerical columns for a scatter matrix.")
+
     st.markdown("---")
 
+    # 3) Distribution by category
     st.markdown("### 🧩 Distribution by Category")
     if num_cols and cat_cols:
         c1, c2, c3 = st.columns([1.5, 1.5, 1])
-        with c1: num_col = st.selectbox("Numerical Column", num_cols, key=f"{kp}_adv_num_col")
-        with c2: cat_col = st.selectbox("Category Column", cat_cols, key=f"{kp}_adv_cat_col")
-        with c3: plot_mode = st.selectbox("Plot", ["Box", "Violin"], key=f"{kp}_adv_plot_mode")
+        with c1:
+            num_col = st.selectbox("Numerical Column", num_cols, key=f"{kp}_adv_num_col")
+        with c2:
+            cat_col = st.selectbox("Category Column", cat_cols, key=f"{kp}_adv_cat_col")
+        with c3:
+            plot_mode = st.selectbox("Plot", ["Box", "Violin"], key=f"{kp}_adv_plot_mode")
 
+        dfp = _maybe_sample(df)
         if plot_mode == "Box":
-            fig = px.box(df, x=cat_col, y=num_col, color=cat_col, color_discrete_sequence=COLORWAY, title=f"{num_col} by {cat_col}", points="outliers")
+            fig = px.box(
+                dfp,
+                x=cat_col,
+                y=num_col,
+                color=cat_col,
+                color_discrete_sequence=COLORWAY,
+                title=f"{num_col} by {cat_col}",
+                points="outliers",
+            )
         else:
-            fig = px.violin(df, x=cat_col, y=num_col, color=cat_col, color_discrete_sequence=COLORWAY, title=f"{num_col} by {cat_col}", box=True, points=False)
+            fig = px.violin(
+                dfp,
+                x=cat_col,
+                y=num_col,
+                color=cat_col,
+                color_discrete_sequence=COLORWAY,
+                title=f"{num_col} by {cat_col}",
+                box=True,
+                points=False,
+            )
         _apply_dark_layout(fig, height=460)
         st.plotly_chart(fig, use_container_width=True, key=_uniq(f"{kp}_dist_by_cat"))
     else:

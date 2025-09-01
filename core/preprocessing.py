@@ -6,7 +6,7 @@ Comprehensive data cleaning and preprocessing functions including
 missing value handling, data type conversion, and intelligent column type detection.
 
 Author: Data Cleaning Tool Team
-Version: 2.5.2
+Version: 2.5.3
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from pandas import DataFrame
 
 
 def check_missing_values(df: DataFrame, percent: bool = False) -> pd.Series:
+    """Check missing values in DataFrame columns."""
     if df.empty:
         return pd.Series(dtype=float)
     return df.isna().mean() * 100 if percent else df.isna().sum()
@@ -30,6 +31,7 @@ def process_missing_values(
     fill_value: Any = None,
     column_types: Optional[Dict[str, str]] = None,
 ) -> DataFrame:
+    """Process missing values in DataFrame using various strategies."""
     if df.empty:
         return df.copy()
 
@@ -73,10 +75,12 @@ def process_missing_values(
 
 
 def convert_data_type(df: DataFrame, column: str, dtype: str) -> DataFrame:
+    """Convert a DataFrame column to a specified data type."""
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found in DataFrame")
 
     df_copy = df.copy()
+
     try:
         if dtype == "datetime":
             df_copy[column] = pd.to_datetime(df_copy[column], errors="coerce")
@@ -95,29 +99,40 @@ def convert_data_type(df: DataFrame, column: str, dtype: str) -> DataFrame:
 
 
 def detect_column_types(df: DataFrame) -> Dict[str, str]:
+    """Automatically detect if columns should be treated as numerical or categorical."""
     if df.empty:
         return {}
+
     column_types: Dict[str, str] = {}
+
     for col in df.columns:
         if pd.api.types.is_numeric_dtype(df[col]):
             unique_count = df[col].nunique(dropna=True)
             unique_ratio = unique_count / len(df[col]) if len(df[col]) else 0.0
-            if (unique_ratio < 0.05 and unique_count < 20) or (unique_count <= 10 and str(df[col].dtype).startswith("int")):
+
+            if (unique_ratio < 0.05 and unique_count < 20) or (
+                unique_count <= 10 and str(df[col].dtype).startswith("int")
+            ):
                 column_types[col] = "cat"
             else:
                 column_types[col] = "num"
         else:
             column_types[col] = "cat"
+
     return column_types
 
 
 def get_column_summary(df: DataFrame, column_types: Dict[str, str]) -> Dict[str, Dict]:
+    """Generate comprehensive summary statistics for columns based on their types."""
     if df.empty:
         return {}
+
     summary: Dict[str, Dict] = {}
+
     for col, col_type in column_types.items():
         if col not in df.columns:
             continue
+
         col_summary: Dict[str, Any] = {
             "type": col_type,
             "missing_count": int(df[col].isna().sum()),
@@ -125,6 +140,7 @@ def get_column_summary(df: DataFrame, column_types: Dict[str, str]) -> Dict[str,
             "unique_count": int(df[col].nunique()),
             "total_count": int(len(df[col])),
         }
+
         if col_type == "num" and pd.api.types.is_numeric_dtype(df[col]):
             try:
                 non_na = ~df[col].isna()
@@ -159,26 +175,41 @@ def get_column_summary(df: DataFrame, column_types: Dict[str, str]) -> Dict[str,
                 )
             except Exception:
                 col_summary["top_values"] = {}
+
         summary[col] = col_summary
+
     return summary
 
 
 def validate_dataframe(df: DataFrame) -> Dict[str, Any]:
+    """Validate DataFrame and return validation results."""
     validation_results: Dict[str, Any] = {"is_valid": True, "errors": [], "warnings": [], "info": {}}
+
     try:
         if df.empty:
             validation_results["errors"].append("DataFrame is empty")
             validation_results["is_valid"] = False
+
         if len(df.columns) == 0:
             validation_results["errors"].append("DataFrame has no columns")
             validation_results["is_valid"] = False
+
         if len(df.columns) != len(set(df.columns)):
             validation_results["warnings"].append("DataFrame contains duplicate column names")
+
         memory_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
         if memory_mb > 500:
             validation_results["warnings"].append(f"Large DataFrame detected ({memory_mb:.1f} MB)")
-        validation_results["info"] = {"rows": int(len(df)), "columns": int(len(df.columns)), "memory_mb": float(memory_mb), "missing_values": int(df.isna().sum().sum())}
+
+        validation_results["info"] = {
+            "rows": int(len(df)),
+            "columns": int(len(df.columns)),
+            "memory_mb": float(memory_mb),
+            "missing_values": int(df.isna().sum().sum()),
+        }
+
     except Exception as e:
         validation_results["errors"].append(f"Validation error: {str(e)}")
         validation_results["is_valid"] = False
+
     return validation_results

@@ -6,7 +6,7 @@ Functions for reading various file formats including CSV, Excel, JSON, and SQLit
 All functions return pandas DataFrames for consistent data processing.
 
 Author: Data Cleaning Tool Team
-Version: 2.5.2
+Version: 2.5.3
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pandas import DataFrame
 
 
 def read_csv(path_or_buffer: Union[str, IO[bytes], IO[str]]) -> DataFrame:
+    """Read a CSV file and return as pandas DataFrame."""
     try:
         return pd.read_csv(path_or_buffer)
     except Exception as e:
@@ -28,6 +29,7 @@ def read_csv(path_or_buffer: Union[str, IO[bytes], IO[str]]) -> DataFrame:
 
 
 def read_excel(path_or_buffer: Union[str, IO[bytes]]) -> DataFrame:
+    """Read an Excel file and return as pandas DataFrame."""
     try:
         return pd.read_excel(path_or_buffer)
     except Exception as e:
@@ -35,6 +37,7 @@ def read_excel(path_or_buffer: Union[str, IO[bytes]]) -> DataFrame:
 
 
 def read_json(path_or_buffer: Union[str, IO[str], IO[bytes]]) -> DataFrame:
+    """Read a JSON file and return as pandas DataFrame."""
     try:
         return pd.read_json(path_or_buffer)
     except Exception as e:
@@ -42,22 +45,36 @@ def read_json(path_or_buffer: Union[str, IO[str], IO[bytes]]) -> DataFrame:
 
 
 def read_sqlite(db_source: Union[str, IO[bytes]], table_name: str) -> DataFrame:
+    """
+    Read data from a SQLite database table and return as pandas DataFrame.
+
+    Accepts either a path or a file-like object with bytes (e.g., Streamlit UploadedFile).
+    """
     try:
         if isinstance(db_source, str) and os.path.exists(db_source):
             with sqlite3.connect(db_source) as conn:
                 return pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+
         if hasattr(db_source, "read"):
-            try: db_source.seek(0)
-            except Exception: pass
+            try:
+                db_source.seek(0)
+            except Exception:
+                pass
+
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-                tmp.write(db_source.read()); tmp_path = tmp.name
+                tmp.write(db_source.read())
+                tmp_path = tmp.name
+
             try:
                 with sqlite3.connect(tmp_path) as conn:
                     df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
                 return df
             finally:
-                try: os.remove(tmp_path)
-                except OSError: pass
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
         raise ValueError("Invalid SQLite source provided. Must be a path or file-like object.")
     except sqlite3.Error as e:
         raise ValueError(f"Error reading SQLite database: {str(e)}") from e
@@ -66,11 +83,13 @@ def read_sqlite(db_source: Union[str, IO[bytes]], table_name: str) -> DataFrame:
 
 
 def validate_file_format(file_path: str) -> bool:
+    """Validate if the file format is supported."""
     supported_extensions = [".csv", ".xlsx", ".xls", ".json", ".db"]
     return any(file_path.lower().endswith(ext) for ext in supported_extensions)
 
 
 def get_file_info(df: DataFrame) -> dict:
+    """Get basic information about the loaded DataFrame."""
     return {
         "rows": int(len(df)),
         "columns": int(len(df.columns)),

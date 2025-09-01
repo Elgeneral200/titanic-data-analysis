@@ -9,7 +9,7 @@ Provides:
 - HTML report generation (dark theme), no external templating dependencies
 
 Author: Data Cleaning Tool Team
-Version: 2.5.2
+Version: 2.5.3
 """
 
 from __future__ import annotations
