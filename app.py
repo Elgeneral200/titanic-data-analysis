@@ -22,16 +22,23 @@ from core import file_handler, preprocessing, visualization, pipeline as pipe, q
 
 # Page configuration
 st.set_page_config(
-    page_title="🧼 Data Cleaning Tool",
-    page_icon="assets/logo.png",  # Set your logo as the favicon/page icon
+    page_title="Data Cleaning Tool",
+    page_icon="assets/logo.png",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
         "Get Help": "https://docs.streamlit.io",
         "Report a bug": "https://github.com/streamlit/streamlit/issues",
-        "About": "Professional Data Cleaning Tool v2.5.3",
+        "About": """
+🧼 **Professional Data Cleaning Tool v2.5.3**  
+
+👨‍💻 Developed by **Muhammad Fathi Kamal**  
+
+🔗 [GitHub](https://github.com/Elgeneral200) | [LinkedIn](https://www.linkedin.com/in/muhammad-fathi-526745287)
+""",
     },
 )
+
 
 
 # Non-breaking space constant (used to keep button labels on one line)
