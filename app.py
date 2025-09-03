@@ -23,6 +23,7 @@ from core import file_handler, preprocessing, visualization, pipeline as pipe, q
 # Page configuration
 st.set_page_config(
     page_title="🧼 Data Cleaning Tool",
+    page_icon="assets/logo.png",  # Set your logo as the favicon/page icon
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -31,6 +32,7 @@ st.set_page_config(
         "About": "Professional Data Cleaning Tool v2.5.3",
     },
 )
+
 
 # Non-breaking space constant (used to keep button labels on one line)
 NBSP = "\u00A0"
@@ -578,17 +580,23 @@ def setup_language_selection() -> Tuple[Dict[str, str], str]:
 
 def render_header(TXT: Dict[str, str]) -> None:
     """
-    Render the professional application header.
+    Render the professional application header with your name and logo.
     """
-    st.markdown(
-        f"""
-    <div class="section-header">
-        <h1 style="margin-bottom: 8px;">{TXT['title']}</h1>
+    col1, col2 = st.columns([3, 1])  # 3:1 width ratio for name and logo
+    
+    with col1:
+        st.markdown(
+            f"""
+        <h1 style="margin-bottom: 8px; color: var(--text-color);">Muhammad Fathi</h1>
         <p style="font-size: 1.1em; color: var(--text-muted);">{TXT['subtitle']}</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+        """,
+            unsafe_allow_html=True,
+        )
+    
+    with col2:
+        st.image("assets/logo.png", width=120)  # Adjust width as needed
+
+
 
 
 def render_sidebar_upload(TXT: Dict[str, str]) -> Optional[Any]:
