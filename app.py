@@ -702,7 +702,7 @@ def render_pipeline_sidebar(TXT: Dict[str, str]) -> None:
             st.info(TXT["no_steps"])
 
         # Controls with unique keys and Clear History label (single line, no brackets)
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns([1, 1, 2])  # Clear History gets double width
         with col1:
             if st.button(TXT["undo"], use_container_width=True, key="btn_undo"):
                 if st.session_state.pipeline.undo():
